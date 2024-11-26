@@ -52,21 +52,21 @@ venv\Scripts\activate # Windows
 
 Создайте файл `.env` в корневой директории:
 ```
-<!-- Yandex Cloud -->
+# Yandex Cloud
 YC_API_KEY=your_api_key
 YC_FOLDER_ID=your_folder_id
 
-<!-- //OpenSearch -->
+# OpenSearch
 MDB_OS_HOSTS=your_opensearch_hosts
 MDB_OS_PWD=your_opensearch_password
 MDB_OS_INDEX_NAME=your_index_name
 MDB_OS_INDEX_NAME_QA=your_qa_index_name
 
-<!-- S3 Storage -->
+# S3 Storage
 S3_ACCESS_KEY_ID=your_s3_key
 S3_SECRET_ACCESS_KEY=your_s3_secret
 
-<!-- Speech Synthesis -->
+# Speech Synthesis
 SK_API_EP=your_speech_synthesis_endpoint
 ```
 

@@ -24,7 +24,7 @@ def get_completion(message: str, history: List[Message]) -> dict:
         print(f"- {msg.type}: {msg.content[:100]}...")
     
     response = requests.post(
-        "http://localhost:8000/completion",
+        "http://backend:8000/completion",
         json={
             "message": message,
             "history": [{"content": msg.content, "type": msg.type} for msg in filtered_history]
