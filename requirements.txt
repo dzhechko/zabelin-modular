@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+streamlit
+python-dotenv
+requests
+pillow
+langchain
+yandex-chain
+opensearch-py
+boto3
+pandas
+pydantic
