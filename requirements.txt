@@ -10,3 +10,4 @@ opensearch-py
 boto3
 pandas
 pydantic
+langchain-community
