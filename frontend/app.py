@@ -42,7 +42,7 @@ def get_voice(text: str, voice: str = "zabelin") -> bytes:
 
 def main():
     # Setup page
-    logo = Image.open('./images/logo.png')
+    logo = Image.open('frontend/images/logo.png')
     resized_logo = logo.resize((100, 100))
     st.set_page_config(page_title="Забелин чат-бот", page_icon="")
     st.image(resized_logo)
