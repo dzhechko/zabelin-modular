@@ -8,6 +8,7 @@ services:
     command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
       - .:/app
+      - ./logs/backend:/app/logs
     ports:
       - "8000:8000"
     environment:
@@ -21,6 +22,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: always
 
   frontend:
     build:
@@ -29,6 +31,7 @@ services:
     command: ["streamlit", "run", "frontend/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
     volumes:
       - .:/app
+      - ./logs/frontend:/app/logs
     ports:
       - "8501:8501"
     environment:
@@ -40,6 +43,7 @@ services:
         condition: service_healthy
     networks:
       - zabelin-net
+    restart: always
 
 networks:
   zabelin-net:

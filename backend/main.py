@@ -14,6 +14,23 @@ import io
 import pandas as pd
 from time import sleep
 from langchain.prompts import PromptTemplate
+from loguru import logger
+import sys
+
+# Настройка логирования
+logger.remove()  # Удаляем дефолтный handler
+logger.add(
+    sys.stdout,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level="INFO"
+)
+logger.add(
+    "logs/app.log",  # Логи будут сохраняться в файл
+    rotation="500 MB",  # Новый файл создается когда старый достигает 500MB
+    retention="10 days",  # Хранить логи 10 дней
+    compression="zip",  # Сжимать старые файлы
+    level="DEBUG"  # В файл пишем более подробные логи
+)
 
 app = FastAPI()
 load_dotenv()
@@ -72,53 +89,50 @@ def parse_csv_file(bucket_name: str, file_key: str) -> Dict[str, str]:
                 if question and answer:
                     questions_answers[question] = answer
 
+        logger.info(f"Успешно загружен CSV файл из S3. Получено {len(questions_answers)} пар вопрос-ответ")
     except Exception as e:
-        print(f"Ошибка при загрузке CSV файла из S3: {e}")
+        logger.error(f"Ошибка при загрузке CSV файла из S3: {e}")
 
     return questions_answers
 
 def get_qa(docs: List[Document], qa_dictionary: Dict[str, str]) -> tuple[List[str], List[str]]:
     """Получение пар вопрос-ответ из найденных документов."""
-    print("\n2. Извлечение пар вопрос-ответ внутри функции get_qa:")
-    print(f"Получено документов: {len(docs)}")
-    print(f"Размер словаря qa_dictionary: {len(qa_dictionary)}")
+    logger.debug(f"Начало извлечения пар вопрос-ответ. Документов: {len(docs)}, Размер словаря: {len(qa_dictionary)}")
     
     answers_list = []
     questions_list = []
     
     for i, doc in enumerate(docs, 1):
         question = doc.page_content
-        print(f"\nОбработка документа {i}:")
-        print(f"Вопрос: {question}")
+        logger.debug(f"Обработка документа {i}: {question[:100]}...")
         
         if question in qa_dictionary:
             answer = qa_dictionary[question]
-            print(f"✓ Найден ответ в словаре: {answer[:100]}...")
+            logger.debug(f"✓ Найден ответ для документа {i}: {answer[:100]}...")
             answers_list.append(answer)
             questions_list.append(question)
         else:
-            print(f"✗ Ответ не найден в словаре для вопроса")
-            print("Ближайшие ключи в словаре:")
-            # Показать несколько ближайших ключей для отладки
+            logger.warning(f"✗ Ответ не найден для документа {i}")
+            logger.debug("Ближайшие ключи в словаре:")
             for key in list(qa_dictionary.keys())[:3]:
-                print(f"- {key[:100]}...")
+                logger.debug(f"- {key[:100]}...")
             answers_list.append("Ответ не найден")
     
-    print(f"\nИтого обработано вопросов: {len(questions_list)}")
-    print(f"Найдено ответов: {len([a for a in answers_list if a != 'Ответ не найден'])}")
-    print(f"Пропущено вопросов: {len([a for a in answers_list if a == 'Ответ не найден'])}")
+    logger.info(f"Обработано вопросов: {len(questions_list)}")
+    logger.info(f"Найдено ответов: {len([a for a in answers_list if a != 'Ответ не найден'])}")
+    logger.info(f"Пропущено вопросов: {len([a for a in answers_list if a == 'Ответ не найден'])}")
     
     return questions_list, answers_list
 
 def verify_relevance(qa_dict: Dict[str, str], docs: List[Document], query: str, llm: YandexGPT) -> tuple[List[str], List[int], Dict[int, str]]:
     """Проверка релевантности найденных ответов."""
-    print("\n3. Проверка релевантности внутри функции verify_relevance:")
-    print(f"Получено документов для проверки: {len(docs)}")
-    print(f"Проверяемый запрос: '{query}'")
-    print(f"Используемая модель YandexGPT:")
-    print(f"- URI: {llm.model_uri}")
-    print(f"- Temperature: {llm.temperature}")
-    print(f"- Max tokens: {llm.max_tokens}")
+    logger.debug("\n3. Проверка релевантности внутри функции verify_relevance:")
+    logger.debug(f"Получено документов для проверки: {len(docs)}")
+    logger.debug(f"Проверяемый запрос: '{query}'")
+    logger.debug(f"Используемая модель YandexGPT:")
+    logger.debug(f"- URI: {llm.model_uri}")
+    logger.debug(f"- Temperature: {llm.temperature}")
+    logger.debug(f"- Max tokens: {llm.max_tokens}")
 
     check_prompt_template = """
     Твоя задача выяснить соответствует ли ОТВЕТ тематике ВОПРОСА.
@@ -136,43 +150,43 @@ def verify_relevance(qa_dict: Dict[str, str], docs: List[Document], query: str, 
     verificator_dic = {}
 
     for i, doc in enumerate(docs):
-        print(f"\nПроверка документа {i+1}:")
-        print(f"Содержимое документа: {doc.page_content[:100]}...")
+        logger.debug(f"\nПроверка документа {i+1}:")
+        logger.debug(f"Содержимое документа: {doc.page_content[:100]}...")
         
         try:
             answer = qa_dict[doc.page_content]
-            print(f"Найденный ответ: {answer[:100]}...")
+            logger.debug(f"Найденный ответ: {answer[:100]}...")
             
             check_string = check_prompt_template.format(
                 question=query,
                 answer=doc.page_content + "\n" + answer
             )
-            print("Отправка запроса в YandexGPT...")
+            logger.debug("Отправка запроса в YandexGPT...")
             
             res = llm.invoke(check_string)
             res_upper = res.upper()
-            print(f"Получен ответ от YandexGPT: {res_upper}")
+            logger.debug(f"Получен ответ от YandexGPT: {res_upper}")
             
             if res_upper in ["ДА", "ДА."]:
-                print("✓ Ответ признан релевантным")
+                logger.debug("✓ Ответ признан релевантным")
                 verificator.append(res_upper)
                 verificator_indices.append(i)
                 verificator_dic[i] = res_upper
             else:
-                print("✗ Ответ не релевантен")
+                logger.debug("✗ Ответ не релевантен")
                 
         except KeyError:
-            print(f"⚠ Ошибка: Ответ не найден в словаре для документа")
+            logger.warning(f"⚠ Ошибка: Ответ не найден в словаре для документа")
         except Exception as e:
-            print(f"⚠ Ошибка при обработке документа: {str(e)}")
+            logger.error(f"⚠ Ошибка при обработке документа: {str(e)}")
         
-        print("Ожидание 2 секунды перед следующим запросом...")
+        logger.debug("Ожидание 2 секунды перед следующим запросом...")
         sleep(2)  # Задержка для избежания rate limiting
 
-    print(f"\nИтоги проверки релевантности:")
-    print(f"Всего проверено документов: {len(docs)}")
-    print(f"Найдено релевантных ответов: {len(verificator)}")
-    print(f"Индексы релевантных ответов: {verificator_indices}")
+    logger.debug(f"\nИтоги проверки релевантности:")
+    logger.debug(f"Всего проверено документов: {len(docs)}")
+    logger.debug(f"Найдено релевантных ответов: {len(verificator)}")
+    logger.debug(f"Индексы релевантных ответов: {verificator_indices}")
 
     return verificator, verificator_indices, verificator_dic
 
@@ -202,13 +216,13 @@ def get_history_summary(llm: YandexGPT, history: List[Message], max_summary_leng
     
     try:
         summary = llm.invoke(summary_prompt.format(dialogue=history_text))
-        print("\nСуммаризация истории:")
-        print(f"Исходная длина: {len(history_text)} символов")
-        print(f"Длина суммаризации: {len(summary)} символов")
-        print(f"Результат: {summary}")
+        logger.info("\nСуммаризация истории:")
+        logger.info(f"Исходная длина: {len(history_text)} символов")
+        logger.info(f"Длина суммаризации: {len(summary)} символов")
+        logger.info(f"Результат: {summary}")
         return summary
     except Exception as e:
-        print(f"Ошибка при суммаризации истории: {e}")
+        logger.error(f"Ошибка при суммаризации истории: {e}")
         # В случае ошибки возвращаем последние сообщения
         return "\n".join([f"{msg.type}: {msg.content}" for msg in history[-3:]])
 
@@ -269,18 +283,18 @@ async def startup_event():
 async def search(request: SearchRequest, custom_system_prompt: Optional[str] = None) -> SearchResponse:
     try:
         query = request.message
-        print(f"\n=== Новый поисковый запрос: '{query}' ===")
+        logger.info(f"\n=== Новый поисковый запрос: '{query}' ===")
         
         # 1. Поиск по вопросам из интервью
-        print("\n1. Поиск по вопросам из интервью:")
+        logger.info("\n1. Поиск по вопросам из интервью:")
         retriever_qa = vectorstore_qa.as_retriever(search_kwargs={"k": 2})
         docs = retriever_qa.invoke(query)
-        print(f"Найдено {len(docs)} документов")
+        logger.info(f"Найдено {len(docs)} документов")
         for i, doc in enumerate(docs, 1):
-            print(f"Документ {i}: {doc.page_content[:100]}...")
+            logger.info(f"Документ {i}: {doc.page_content[:100]}...")
         
         # 2. Получение пар вопрос-ответ
-        print("\n2. Извлечение пар вопрос-ответ:")
+        logger.info("\n2. Извлечение пар вопрос-ответ:")
         questions_list, answers_list = get_qa(docs, qa_dictionary)
         documents = [
             Document(
@@ -291,19 +305,19 @@ async def search(request: SearchRequest, custom_system_prompt: Optional[str] = N
         ]
         
         # 3. Верификация релевантности
-        print("\n3. Проверка релевантности:")
+        logger.info("\n3. Проверка релевантности:")
         verificator, verificator_indices, verificator_dic = verify_relevance(
             qa_dictionary, docs, query, llm
         )
-        print(f"Найдено {len(verificator)} релевантных ответов")
+        logger.info(f"Найдено {len(verificator)} релевантных ответов")
         for i, idx in enumerate(verificator_indices):
-            print(f"Релевантный ответ {i+1}: {verificator_dic[idx]}")
+            logger.info(f"Релевантный ответ {i+1}: {verificator_dic[idx]}")
         
         # 4. Формирование контекста
-        print("\n4. Формирование контекста:")
+        logger.info("\n4. Формирование контекста:")
         if len(verificator) > 0:
             # Используем релевантные ответы из интервью
-            print("Используем релевантные ответы из интервью")
+            logger.info("Используем релевантные ответы из интервью")
             documents_new = []
             context_ext = query
             for i in range(len(verificator)):
@@ -311,14 +325,14 @@ async def search(request: SearchRequest, custom_system_prompt: Optional[str] = N
                 context_ext = context_ext + " " + qa_dictionary[docs[verificator_indices[i]].page_content]
             combined_doc = documents_new
             
-            print("\nСодержимое combined_doc (релевантные ответы):")
+            logger.info("\nСодержимое combined_doc (релевантные ответы):")
             for i, doc in enumerate(combined_doc, 1):
-                print(f"\nДокумент {i}:")
-                print(f"- Content: {doc.page_content[:200]}...")
-                print(f"- Metadata: {doc.metadata}")
+                logger.info(f"\nДокумент {i}:")
+                logger.info(f"- Content: {doc.page_content[:200]}...")
+                logger.info(f"- Metadata: {doc.metadata}")
         else:
             # Используем описательную часть
-            print("\nИспользуем описательную часть")
+            logger.info("\nИспользуем описательную часть")
             retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
             docs_classic = retriever.invoke(query)
             context_ext = query
@@ -326,13 +340,13 @@ async def search(request: SearchRequest, custom_system_prompt: Optional[str] = N
                 context_ext = context_ext + " " + doc.page_content
             combined_doc = docs_classic
             
-            print("\nСодержимое combined_doc (описательная часть):")
+            logger.info("\nСодержимое combined_doc (описательная часть):")
             for i, doc in enumerate(combined_doc, 1):
-                print(f"\nДокумент {i}:")
-                print(f"- Content: {doc.page_content[:200]}...")
-                print(f"- Metadata: {doc.metadata}")
+                logger.info(f"\nДокумент {i}:")
+                logger.info(f"- Content: {doc.page_content[:200]}...")
+                logger.info(f"- Metadata: {doc.metadata}")
             
-            print(f"\nНайдено {len(docs_classic)} документов из описательной части")
+            logger.info(f"\nНайдено {len(docs_classic)} документов из описательной части")
         
         # 5. Формирование промпта и получение ответа
         default_system_prompt = """
@@ -361,21 +375,21 @@ async def search(request: SearchRequest, custom_system_prompt: Optional[str] = N
         history_text = get_history_summary(llm, request.history)
         formatted_prompt = system_prompt.format(context=context_ext, history=history_text)
         
-        print("\nФинальный промпт для модели:")
-        print("=== System Message ===")
-        print(formatted_prompt)
-        print("\n=== Human Message ===")
-        print(query)
-        print("===================")
+        logger.info("\nФинальный промпт для модели:")
+        logger.info("=== System Message ===")
+        logger.info(formatted_prompt)
+        logger.info("\n=== Human Message ===")
+        logger.info(query)
+        logger.info("===================")
         
         response = chat_llm.invoke([
             SystemMessage(content=formatted_prompt),
             HumanMessage(content=query)
         ])
-        print(f"\nСгенерирован ответ длиной {len(response.content)} символов")
+        logger.info(f"\nСгенерирован ответ длиной {len(response.content)} символов")
         
         # 6. Формирование ответа
-        print("\n6. Подготовка источников:")
+        logger.info("\n6. Подготовка источников:")
         sources = [
             {
                 "source": doc.metadata.get("source", "unknown"),
@@ -383,9 +397,9 @@ async def search(request: SearchRequest, custom_system_prompt: Optional[str] = N
             }
             for doc in combined_doc
         ]
-        print(f"Добавлено {len(sources)} источников")
+        logger.info(f"Добавлено {len(sources)} источников")
         
-        print("\n=== Обработка запроса завершена ===\n")
+        logger.info("\n=== Обработка запроса завершена ===\n")
         
         return SearchResponse(
             response=response.content,
@@ -394,15 +408,15 @@ async def search(request: SearchRequest, custom_system_prompt: Optional[str] = N
         )
         
     except Exception as e:
-        print(f"\n!!! Ошибка при обработке запроса: {str(e)} !!!")
+        logger.error(f"\n!!! Ошибка при обработке запроса: {str(e)} !!!")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/completion")
 async def get_completion(request: CompletionRequest) -> CompletionResponse:
     try:
-        print(f"\n=== Новый completion запрос ===")
-        print(f"Сообщение: '{request.message}'")
-        print(f"История: {len(request.history)} сообщений")
+        logger.info(f"\n=== Новый completion запрос ===")
+        logger.info(f"Сообщение: '{request.message}'")
+        logger.info(f"История: {len(request.history)} сообщений")
         
         # Get configuration values with fallbacks
         folder_id = request.folder_id or os.getenv("YC_FOLDER_ID")
@@ -411,11 +425,11 @@ async def get_completion(request: CompletionRequest) -> CompletionResponse:
         max_tokens = request.max_tokens or 8000
         temperature = request.temperature or 0.3
         
-        print(f"\nКонфигурация:")
-        print(f"- Model URI: {model_uri}")
-        print(f"- Max tokens: {max_tokens}")
-        print(f"- Temperature: {temperature}")
-        print(f"- Custom system prompt: {'Да' if request.system_prompt else 'Нет'}")
+        logger.info(f"\nКонфигурация:")
+        logger.info(f"- Model URI: {model_uri}")
+        logger.info(f"- Max tokens: {max_tokens}")
+        logger.info(f"- Temperature: {temperature}")
+        logger.info(f"- Custom system prompt: {'Да' if request.system_prompt else 'Нет'}")
         
         # Initialize YandexGPT with dynamic configuration
         chat_llm = ChatYandexGPT(
@@ -445,28 +459,28 @@ async def get_completion(request: CompletionRequest) -> CompletionResponse:
         )
         
     except Exception as e:
-        print(f"\n!!! Ошибка в completion endpoint: {str(e)} !!!")
+        logger.error(f"\n!!! Ошибка в completion endpoint: {str(e)} !!!")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/test/history")
 async def test_history_handling(request: CompletionRequest) -> dict:
     """Тестовый эндпоинт для проверки обработки истории."""
     try:
-        print("\n=== Тестирование обработки истории ===")
+        logger.info("\n=== Тестирование обработки истории ===")
         
         # 1. Показать исходную историю
-        print("\n1. Исходная история:")
+        logger.info("\n1. Исходная история:")
         for i, msg in enumerate(request.history, 1):
-            print(f"Сообщение {i}:")
-            print(f"- Тип: {msg.type}")
-            print(f"- Содержание: {msg.content}")
+            logger.info(f"Сообщение {i}:")
+            logger.info(f"- Тип: {msg.type}")
+            logger.info(f"- Содержание: {msg.content}")
         
         # 2. Проверить суммаризацию
-        print("\n2. Тест суммаризации:")
+        logger.info("\n2. Тест суммаризации:")
         summary = get_history_summary(llm, request.history)
         
         # 3. Проверить форматирование для промпта
-        print("\n3. Форматирование для промпта:")
+        logger.info("\n3. Форматирование для промпта:")
         history_text = "\n".join([f"{msg.type}: {msg.content}" for msg in request.history])
         
         return {
@@ -479,7 +493,7 @@ async def test_history_handling(request: CompletionRequest) -> dict:
         }
         
     except Exception as e:
-        print(f"Ошибка при тестировании истории: {e}")
+        logger.error(f"Ошибка при тестировании истории: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
